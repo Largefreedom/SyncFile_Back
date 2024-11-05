@@ -13,6 +13,14 @@ import json
 from  logg import logger as logger
 import uuid
 
+async def time_delay(num):
+    logger.info("start count")
+    time.sleep(num)
+    logger.info("end count")
+
+
+
+
 @web.middleware
 async def cache_control(request: web.Request, handler):
     response: web.Response = await handler(request)
@@ -46,7 +54,6 @@ class MainServer:
         self.loop = loop
         self.program = main_program
         # 初始文件夹根目录
-
         middlewares = [cache_control]
         middlewares.append(create_cors_middleware("*"))
         max_upload_size = constant.WEB_MAX_UPLOAD_SIZE
@@ -65,7 +72,8 @@ class MainServer:
             logger.info("WebSocket connection established")
             # Send a message to the server
             await ws.send_str("Hello, Server!")
-            self.socket = []
+            # self.socket = []
+            self.program.socket = []
             # Wait for a response from the server
             async for msg in ws:
                 logger.info(f"input type {msg.type}  {aiohttp.WSMsgType.CLOSED}")
@@ -74,18 +82,22 @@ class MainServer:
                     if msg.data == "close":
                         await ws.close()
                         break
-                    if (len(self.socket) == 0):
-                        self.socket.append(ws)
+                    if (len(self.program.socket) == 0):
+                        # self.socket.append(ws)
+                        self.program.socket.append(ws)
                     else:
                         logger.info("remove already socket")
                         # socket is not empty, remove already exits, add new
-                        self.socket = []
-                        self.socket.append(ws)
+                        self.program.socket = []
+                        # self.socket.append(ws)
+                        self.program.socket.append(ws)
                 elif msg.type == aiohttp.WSMsgType.CLOSED:
                     logger.info("WebSocket connection closed")
+                    self.program.socket = []
                     break
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.info(f"WebSocket error: {ws.exception()}")
+                    self.program.socket = []
                     break
                 # elif msg.type == aiohttp.WSMsgType.CONTINUATION:
                 #
@@ -127,12 +139,13 @@ class MainServer:
             data = await request.json()
             # logger.info("获取到数据为", data)
             submit_id = data.get("id")
-
-            filter_file = list(filter(lambda x: x["id"] == submit_id, self.operate_path_list))
-            if len(filter_file) == 0:
-                raise Exception("源数据有误")
-            result_file = filter_file[0]
-            await self.send_data_obj_programe(result_file)
+            # asyncio.create_task(time_delay(10))
+            self.loop.call_soon_threadsafe(
+                self.program.task_queue_file.put_nowait, (submit_id)
+            )
+            # if submit_id:
+            #     await self.program.task_queue_file.put(submit_id)
+            # logger.info(f"------------------------{submit_id}")
             return web.json_response(data)
 
         @routes.get("/send-data")
@@ -148,7 +161,7 @@ class MainServer:
         # submit the dir info to server
         @routes.post("/submit-dir")
         async def post_interrupt(request):
-            self.program.send_sync("query", {
+            await self.program.send_sync("query", {
                 "data": "data"
             })
             return self.obtain_all_file_size(constant.TMP_DIR_PATH)
@@ -180,14 +193,24 @@ class MainServer:
         timeout = aiohttp.ClientTimeout(total=None) # no timeout
         self.client_session = aiohttp.ClientSession(timeout=timeout)
 
+    async def task_execute_loop(self):
+        while True:
+            file_id = await self.program.task_queue_file.get()
+            logger.info(f"query task_id {file_id}, start execute task")
+            filter_file = list(filter(lambda x: x["id"] == file_id, self.operate_path_list))
+            if len(filter_file) == 0:
+                logger.error(f"error not query file_item for {file_id}")
+            result_file = filter_file[0]
+            await self.send_data_obj_programe(result_file)
+
+
     async def publish_loop(self):
         while True:
             msg = await self.program.state_msg.get()
+            logger.info(f"ready to send data, receive {len(self.socket)} msg is {msg}")
             if len(self.socket)!=0 and msg:
                 # logger.info(msg[1])
-                await self.socket[0].send_str(json.dumps(
-                    msg[1]
-                ))
+                await self.socket[0].send_str(json.dumps(msg[1]))
 
     def add_routes(self):
 
@@ -205,13 +228,6 @@ class MainServer:
         await runner.setup()
         ssl_ctx = None
         scheme = "http"
-        # https  scheme
-        # if args.tls_keyfile and args.tls_certfile:
-        #     ssl_ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER, verify_mode=ssl.CERT_NONE)
-        #     ssl_ctx.load_cert_chain(certfile=args.tls_certfile,
-        #                             keyfile=args.tls_keyfile)
-        #     scheme = "https"
-
         site = web.TCPSite(runner, address, port, ssl_context=ssl_ctx)
         await site.start()
         self.address = address
@@ -223,7 +239,9 @@ class MainServer:
             call_on_start(scheme, address, port)
 
 async def run(server, address='', port=8188, verbose=True, call_on_start=None):
-    await asyncio.gather(server.start(address, port, verbose, call_on_start),server.publish_loop())
+    await asyncio.gather(server.start(address, port, verbose, call_on_start),server.publish_loop(),
+                         server.task_execute_loop()
+                        )
 
 
 if __name__ == '__main__':
