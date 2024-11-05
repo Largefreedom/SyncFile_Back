@@ -7,8 +7,7 @@ class Logger:
         file_handler = logging.FileHandler(constant.LOG_SAVE_PATH)
         console_handler = logging.StreamHandler()
         # Set levels for the handlers
-        file_handler.setLevel(logging.ERROR)
-        console_handler.setLevel(logging.DEBUG)
+        file_handler.setLevel(logging.INFO)
         # Create a colorized formatter
         console_formatter = colorlog.ColoredFormatter(
             "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -28,15 +27,12 @@ class Logger:
         file_handler.setFormatter(formatter)
         console_handler.setFormatter(console_formatter)
         # Get a logger and attach handlers
-
         self.logger = logging.getLogger('my_app')
         self.logger.propagate = False
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)
         self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
         # not pass up to root logger,ensure not result duplicate output
-
-
 
     def info(self,msg):
         self.logger.info(msg)
@@ -48,3 +44,4 @@ class Logger:
         self.logger.debug(msg)
 
 
+logger = Logger()

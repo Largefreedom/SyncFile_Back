@@ -10,16 +10,14 @@ from enum import Enum
 import asyncio
 from concurrent.futures import  ThreadPoolExecutor,as_completed
 import constant
-import logg
+from  logg import logger as logger
 
-logger = logg.Logger()
 
 # task execute status
 class UPLOAD_STATUS(Enum):
     success = "success"
     progress = "progress"
     error = "error"
-
 
 class  MainClass:
     def __init__(self,
@@ -146,14 +144,24 @@ class  MainClass:
         return chunk_dict_list
 
     # start a multi thread to process single chunk  data
-    def multi_thread_single_chunk_data(self,chunk_num,need_list_data,chunk_content,
+    def multi_thread_single_chunk_data(self,
+                                       file_path,
+                                       chunk_num,
+                                       need_list_data,
                                        file_id,
                                        total_size):
+
+
 
         chunk_item_dict = dict()
         combine_data_item = dict()
         if chunk_num in need_list_data:
-            new_part_file, chunk_item_complete_path = self.receive_chunk_file(chunk_content,
+
+            with open(file_path, "rb") as f:
+                f.seek(chunk_num * self.chunk_size)
+                data = f.read(self.chunk_size)
+
+            new_part_file, chunk_item_complete_path = self.receive_chunk_file(data,
                                                                               file_id,
                                                                               chunk_num)
             chunk_item_dict["file_name"] = new_part_file
@@ -193,11 +201,51 @@ class  MainClass:
 
 
 
+    def get_chunk_file(self,file_path,chunk_num):
+        with open(file_path,"rb") as f:
+            f.seek(chunk_num * self.chunk_size)
+            data = f.read(self.chunk_size)
+        return data,chunk_num
+
+
+    def fix_uncomplete_upload(self,file_json_data,need_list_data):
+        chunk_num = 0
+        ini_offset_size = chunk_num * self.chunk_size
+        file_size = file_json_data["size"]
+        chunk_dict_list = file_json_data["chunks"]
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            thread_pool_param_list = []
+            while (ini_offset_size<=file_size):
+                param_list = []
+                param_list.append(file_json_data["file_path"])
+                param_list.append(chunk_num)
+                param_list.append(need_list_data)
+                param_list.append(file_json_data["file_id"])
+                param_list.append(file_json_data["size"])
+                thread_pool_param_list.append(param_list)
+
+                chunk_num += 1
+                ini_offset_size = chunk_num * self.chunk_size
+            futures = {executor.submit(self.multi_thread_single_chunk_data, *data): data for data in
+                       thread_pool_param_list}
+
+            for future in as_completed(futures):
+                result = future.result()  # Get the result from the Future
+                if result[0]:
+                    chunk_dict_list.append(result[0])
+
+        file_json_data["chunk_num"] = chunk_num - 1
+        chunk_dict_list = sorted(chunk_dict_list, key=lambda x: x["chunk_num"])
+        file_json_data["chunks"] = chunk_dict_list
+        self.save_all_file(file_json_data)
+
+
+
 
     def fix_uncomplete_upload(self,file_json_data, need_list_data):
         combined_data = []
         with open(file_json_data["file_path"], "rb") as f:
-            chunk_num = 1
+            chunk_num = 0
             chunk_dict_list = file_json_data["chunks"]
             with ThreadPoolExecutor(max_workers=3) as executor:
                 thread_pool_param_list = []

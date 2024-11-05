@@ -10,10 +10,9 @@ import  constant
 import time
 import os
 import json
-import logg
+from  logg import logger as logger
 import uuid
 
-logger = logg.Logger()
 @web.middleware
 async def cache_control(request: web.Request, handler):
     response: web.Response = await handler(request)
@@ -58,7 +57,6 @@ class MainServer:
         self.operate_path_list = []
         self.socket = []
 
-
         @routes.get('/ws')
         async def websocket_handler(request):
             ws = web.WebSocketResponse()
@@ -67,8 +65,10 @@ class MainServer:
             logger.info("WebSocket connection established")
             # Send a message to the server
             await ws.send_str("Hello, Server!")
+            self.socket = []
             # Wait for a response from the server
             async for msg in ws:
+                logger.info(f"input type {msg.type}  {aiohttp.WSMsgType.CLOSED}")
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     logger.info(f"Received from server: {json.loads(msg.data)}")
                     if msg.data == "close":
@@ -76,12 +76,19 @@ class MainServer:
                         break
                     if (len(self.socket) == 0):
                         self.socket.append(ws)
+                    else:
+                        logger.info("remove already socket")
+                        # socket is not empty, remove already exits, add new
+                        self.socket = []
+                        self.socket.append(ws)
                 elif msg.type == aiohttp.WSMsgType.CLOSED:
                     logger.info("WebSocket connection closed")
                     break
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.info(f"WebSocket error: {ws.exception()}")
                     break
+                # elif msg.type == aiohttp.WSMsgType.CONTINUATION:
+                #
             # if sid:
             #     # Reusing existing session, remove old
             #     self.sockets.pop(sid, None)
