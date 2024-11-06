@@ -160,8 +160,8 @@ class MainServer:
 
         # submit the dir info to server
         @routes.post("/submit-dir")
-        async def post_interrupt(request):
-            await self.program.send_sync("query", {
+        def post_interrupt(request):
+            self.program.send_sync("query", {
                 "data": "data"
             })
             return self.obtain_all_file_size(constant.TMP_DIR_PATH)
@@ -187,7 +187,8 @@ class MainServer:
         })
 
     async  def send_data_obj_programe(self,pass_obj):
-        self.program.init_file_version2(pass_obj)
+        await self.program.init_file_version2(pass_obj)
+
     async def setup(self):
         # 设置 http basic setup
         timeout = aiohttp.ClientTimeout(total=None) # no timeout
@@ -208,12 +209,11 @@ class MainServer:
         while True:
             msg = await self.program.state_msg.get()
             logger.info(f"ready to send data, receive {len(self.socket)} msg is {msg}")
-            if len(self.socket)!=0 and msg:
+            if len(self.program.socket)!=0 and msg:
                 # logger.info(msg[1])
-                await self.socket[0].send_str(json.dumps(msg[1]))
+                await self.program.socket[0].send_str(json.dumps(msg[1]))
 
     def add_routes(self):
-
         api_routes = web.RouteTableDef()
         for route in self.routes:
             # Custom nodes might add extra static routes. Only process non-static
@@ -239,9 +239,9 @@ class MainServer:
             call_on_start(scheme, address, port)
 
 async def run(server, address='', port=8188, verbose=True, call_on_start=None):
-    await asyncio.gather(server.start(address, port, verbose, call_on_start),server.publish_loop(),
-                         server.task_execute_loop()
-                        )
+    await asyncio.gather(server.start(address, port, verbose, call_on_start),
+                         server.task_execute_loop(),
+                         server.publish_loop())
 
 
 if __name__ == '__main__':

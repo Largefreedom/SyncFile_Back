@@ -10,7 +10,7 @@ CHUNK_SIZE = 1024 * 1024 * 20
 WEB_MAX_UPLOAD_SIZE = 5 * (1024 ** 4) * 1024 * 1024
 
 # execute thread num
-PROCESS_THREAD_NUM = 3
+PROCESS_THREAD_NUM = 1
 
 # temp const dir path
 TMP_DIR_PATH = "D:/Coding/Practice/Pychon_Pra/temp"

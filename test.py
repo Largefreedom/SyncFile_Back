@@ -37,37 +37,51 @@ from logg import logger
 # main_process.init_file_version2(result_file)
 
 
+async def read_data(tempdata):
+    with open(
+            "D:/Coding/Practice/Pychon_Pra/tempOut/0_A Conversation with the Founder of ChatGPT_360332649_17081293538886294.mp4",
+            "rb") as file:
+        temp = file.read()
+    logger.info(f"temp is {tempdata}")
 class A:
     def __init__(self):
         self.queue_state = asyncio.Queue()
 
-
-
     async def start(self):
         while True:
             # logger.info(f"queue status is {self.queue_state.empty()}")
-            data = await self.queue_state.empty()
-            if not await self.queue_state.empty():
-                logger.info(f"data is {await self.queue_state.put_nowait()}")
+            data = await self.queue_state.get()
+            logger.info(f"data is {data}")
 
 
     async def start_one(self):
+        # for i in range(20):
+        #     # self.queue_state.put_nowait("1111")
+        #     logger.info(f"input msg-- {1111}")
+        logger.info(f"input msg-- {1111}")
+        await read_data("start_one")
+        await asyncio.sleep(5)
+        logger.info(f"input msg-- {1122211}")
+        await read_data("start_two")
+
+    async def start_loop(self):
         while True:
-            time.sleep(2)
-            self.queue_state.put_nowait("1111")
-            logger.info(f"input msg {1111}")
+            await asyncio.sleep(2)
+            self.queue_state.put_nowait("111111111111")
+            await read_data("start_loop")
 
 async def run(a):
-    await asyncio.gather(a.start(),a.start_one())
+    await asyncio.gather(a.start(),a.start_one(),a.start_loop())
 
 
 
 if __name__ =="__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     a = A()
-
-    try:
-        loop.run_until_complete(run(a))
-    except KeyboardInterrupt:
-        logger.info("\nStopped server")
+    asyncio.run( run(a))
+    # loop = asyncio.new_event_loop()
+    # asyncio.set_event_loop(loop)
+    # a = A()
+    # try:
+    #     loop.run_until_complete(run(a))
+    # except KeyboardInterrupt:
+    #     logger.info("\nStopped server")
