@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 
 
+# monitor result to graph
 def get_cpu_usage():
     return psutil.cpu_percent(interval=1)
 

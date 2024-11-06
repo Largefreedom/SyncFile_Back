@@ -1,9 +1,9 @@
 #  a test scripts to validate whether func's logic is correct.
+
 import os
 import time
-
 import constant
-from main import MainClass
+from file_transfer import MainClass
 import asyncio
 from logg import logger
 
@@ -39,7 +39,7 @@ from logg import logger
 
 async def read_data(tempdata):
     with open(
-            "D:/Coding/Practice/Pychon_Pra/tempOut/0_A Conversation with the Founder of ChatGPT_360332649_17081293538886294.mp4",
+            "D:/Coding/Practice/Pychon_Pra/temp/A Conversation with the Founder of ChatGPT_360332649_17081293538886294.mp4",
             "rb") as file:
         temp = file.read()
     logger.info(f"temp is {tempdata}")
@@ -49,7 +49,7 @@ class A:
 
     async def start(self):
         while True:
-            # logger.info(f"queue status is {self.queue_state.empty()}")
+
             data = await self.queue_state.get()
             logger.info(f"data is {data}")
 
@@ -66,18 +66,35 @@ class A:
 
     async def start_loop(self):
         while True:
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.2)
             self.queue_state.put_nowait("111111111111")
+            logger.info("--------------------------")
+
             await read_data("start_loop")
+
+
+    async def num_a(self):
+        return "1"
+
+    async def num_b(self):
+        return "2"
+
+    async def num_c(self):
+        return "3"
+
 
 async def run(a):
     await asyncio.gather(a.start(),a.start_one(),a.start_loop())
 
 
+async def run_abc(a):
+    result = await asyncio.gather(a.num_a(),a.num_b(),a.num_c())
+    print(result)
 
 if __name__ =="__main__":
     a = A()
     asyncio.run( run(a))
+    # asyncio.run(run_abc(a))
     # loop = asyncio.new_event_loop()
     # asyncio.set_event_loop(loop)
     # a = A()

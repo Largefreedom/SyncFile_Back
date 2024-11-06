@@ -5,14 +5,13 @@
 import os
 from pathlib import Path
 import json
-import hashlib
 from enum import Enum
 import asyncio
 from concurrent.futures import  ThreadPoolExecutor,as_completed
 import constant
-import time
 from  logg import logger as logger
-import psutil
+import hashlib
+
 
 # task execute status
 class UPLOAD_STATUS(Enum):
@@ -44,12 +43,14 @@ class  MainClass:
         # file_path is a json obj
         if not os.path.exists(self.output_path):
             os.makedirs(self.output_path, exist_ok=True)
+
         # acquire the byte size of a file
         file_size = file_path_obj["file_size"]
         file_path = file_path_obj["file_path"]
         file_path_suffix = Path(file_path)
         file_suffix = file_path_suffix.suffix
         file_id = file_path_obj["id"]
+        await self.clear_temp_path(file_id)
         file_json_data = self.load_progress(file_id)
         if not file_json_data:
             file_json_data["file_name"] = file_id
@@ -58,10 +59,10 @@ class  MainClass:
             file_json_data["chunk_size"] = self.chunk_size
             file_json_data["file_id"] = file_id
             file_json_data["file_path"] = file_path
+            file_json_data["chunks"] = []
             #   all restart upload
             logger.info("数据初始化 %s" % file_json_data["file_id"])
-            self.process_bar = 0
-            await self.all_ini_restart_upload(file_json_data)
+            await self.start_divide_file_into_multi_chunks(file_json_data,[],False)
         else:
             #   已上传一部分，
             if "status" in file_json_data and UPLOAD_STATUS.success.value == file_json_data["status"]:
@@ -70,28 +71,32 @@ class  MainClass:
             need_upload_list = await self.check_data_interity_and_correct(file_json_data, chunk_list)
             logger.info("部分文件缺失，需要补充 %s, %s" % (need_upload_list, file_json_data["file_id"]))
             if (len(need_upload_list) > 0):
-                await self.fix_uncomplete_upload(file_json_data, need_upload_list)
+                await self.start_divide_file_into_multi_chunks(file_json_data,need_upload_list, True)
 
 
 
     # send_msg
     async def send_sync(self, event, data, sid=None):
         # time.sleep(0.1)
-        logger.info(f"invoke send_sync func, event is {event} data is {data} {len(self.socket)}")
         if len(self.socket) > 0:
-            self.loop.call_soon_threadsafe(
-                self.socket[0].send_str, json.dumps(data)
-            )
-            await self.socket[0].send_str(json.dumps(data))
-            # self.loop.call_soon(
-            #     self.state_msg.put_nowait, (event, data, sid)
-            # )
-
+            await asyncio.sleep(0.02)
+            self.state_msg.put_nowait((event, data, sid))
+            # await self.socket[0].send_str(json.dumps(data))
     async def init_socket(self,ws_item):
         self.socket = []
         self.socket = self.socket.append(ws_item)
+
+
+    async def clear_temp_path(self,file_id):
+        # remove_all_
+        for item in os.listdir(self.output_path):
+            if file_id in item:
+                # if file path startwidths string file_id
+                os.remove(os.path.join(self.output_path,item))
+
     async def clear_socket(self):
         self.socket = []
+
 
     async def send_process_bar_event(self,file_id,file_total_size,chunk_num):
         file_size = [os.path.getsize(os.path.join(self.output_path,item))
@@ -129,7 +134,7 @@ class  MainClass:
 
 
 
-    async def receive_chunk_file(self,chunk, file_id, chunk_num):
+    def receive_chunk_file(self,chunk, file_id, chunk_num):
         new_part_file = "%s_part%s" % (file_id, chunk_num)
         chunk_item_complete_path = os.path.join(self.output_path, new_part_file)
         with open(chunk_item_complete_path, "wb") as chunk_file:
@@ -157,51 +162,31 @@ class  MainClass:
             chunk_dict_list = sorted(chunk_dict_list, key=lambda x: x["chunk_num"])
         return chunk_dict_list
 
+
     # start a multi thread to process single chunk  data
-    async def multi_thread_single_chunk_data(self,
+    def multi_thread_single_chunk_data(self,
                                        file_path,
                                        chunk_num,
                                        need_list_data,
                                        file_id,
-                                       total_size):
+                                       is_restore):
         chunk_item_dict = dict()
         combine_data_item = dict()
-        if chunk_num in need_list_data:
+        # logger.info(f"file_id {file_id}, chunk_num {chunk_num}")
+        if (is_restore and (chunk_num in need_list_data)) or (is_restore == False):
+            # only when new_transfer and need update process, will continue to execute the follow code block
             with open(file_path, "rb") as f:
                 f.seek(chunk_num * self.chunk_size)
                 data = f.read(self.chunk_size)
-            new_part_file, chunk_item_complete_path = await self.receive_chunk_file(data,
+            new_part_file, chunk_item_complete_path = self.receive_chunk_file(data,
                                                                               file_id,
                                                                               chunk_num)
             chunk_item_dict["file_name"] = new_part_file
             chunk_item_dict["chunk_num"] = chunk_num
             chunk_item_dict["file_path"] = chunk_item_complete_path
-        await self.send_process_bar_event(file_id,total_size,chunk_num)
+            # calculate hash for hex num
+            chunk_item_dict["hash"] = hashlib.sha256(data).hexdigest()
         return  chunk_item_dict,combine_data_item
-
-
-    async def multi_thread_single_chunk_data_init(self,
-                                            file_path,
-                                            chunk_num,
-                                            file_id,
-                                            total_size):
-        chunk_item_dict = dict()
-        combine_data_item = dict()
-        with open(file_path, "rb") as f:
-            f.seek(chunk_num * self.chunk_size)
-            data = f.read(self.chunk_size)
-        new_part_file, chunk_item_complete_path = await self.receive_chunk_file(data,
-                                                                          file_id,
-                                                                          chunk_num)
-        chunk_item_dict["file_name"] = new_part_file
-        chunk_item_dict["chunk_num"] = chunk_num
-        chunk_item_dict["file_path"] = chunk_item_complete_path
-        chunk_item_dict["status"] = UPLOAD_STATUS.success.value
-        # calculate hash for hex num
-        # chunk_item_dict["hash"] = hashlib.sha256(data).hexdigest()
-        await self.send_process_bar_event(file_id, total_size,chunk_num)
-        return chunk_item_dict
-
 
 
     async def get_chunk_file(self,file_path,chunk_num):
@@ -210,55 +195,11 @@ class  MainClass:
             data = f.read(self.chunk_size)
         return data,chunk_num
 
-
-    async def fix_uncomplete_upload(self,file_json_data,need_list_data):
+    async def start_divide_file_into_multi_chunks(self,file_json_data,need_list_data,is_restore):
         chunk_num = 0
         ini_offset_size = chunk_num * self.chunk_size
         file_size = file_json_data["size"]
         chunk_dict_list = file_json_data["chunks"]
-        with ThreadPoolExecutor(max_workers=constant.PROCESS_THREAD_NUM) as executor:
-            thread_pool_param_list = []
-            while (ini_offset_size<=file_size):
-                param_list = []
-                param_list.append(file_json_data["file_path"])
-                param_list.append(chunk_num)
-                param_list.append(need_list_data)
-                param_list.append(file_json_data["file_id"])
-                param_list.append(file_json_data["size"])
-                thread_pool_param_list.append(param_list)
-                chunk_num += 1
-                ini_offset_size = chunk_num * self.chunk_size
-            # every 3 item process parallel to threadPool
-            # for i in range(0, len(thread_pool_param_list),constant.PROCESS_THREAD_NUM):
-            #     item_list = thread_pool_param_list[i:i+constant.PROCESS_THREAD_NUM]
-            #     futures = {executor.submit(self.multi_thread_single_chunk_data, *data): data for data in
-            #                item_list}
-            #     for future in as_completed(futures):
-            #         result = future.result()  # Get the result from the Future
-            #         if result[0]:
-            #             chunk_dict_list.append(result[0])
-
-            for i in thread_pool_param_list:
-                result = await self.multi_thread_single_chunk_data(*i)
-                # item_list = thread_pool_param_list[i:i + constant.PROCESS_THREAD_NUM]
-                # futures = {executor.submit(self.multi_thread_single_chunk_data, *data): data for data in
-                #            item_list}
-                # for future in as_completed(futures):
-                #     result = future.result()  # Get the result from the Future
-                if result[0]:
-                     chunk_dict_list.append(result[0])
-
-        file_json_data["chunk_num"] = chunk_num - 1
-        chunk_dict_list = sorted(chunk_dict_list, key=lambda x: x["chunk_num"])
-        file_json_data["chunks"] = chunk_dict_list
-        await self.save_all_file(file_json_data)
-
-
-    async def all_ini_restart_upload(self,file_json_data):
-        chunk_num = 0
-        ini_offset_size = chunk_num * self.chunk_size
-        file_size = file_json_data["size"]
-        chunk_dict_list = []
         with ThreadPoolExecutor(max_workers=constant.PROCESS_THREAD_NUM) as executor:
             thread_pool_param_list = []
             while (ini_offset_size <= file_size):
@@ -266,24 +207,24 @@ class  MainClass:
                 param_list = []
                 param_list.append(file_json_data["file_path"])
                 param_list.append(chunk_num)
+                param_list.append(need_list_data)
                 param_list.append(file_json_data["file_id"])
-                param_list.append(file_json_data["size"])
+                # not process restore logic,forth params was False
+                param_list.append(is_restore)
                 thread_pool_param_list.append(param_list)
                 chunk_num += 1
                 ini_offset_size = chunk_num * self.chunk_size
 
-            for param_item in thread_pool_param_list:
-                result = await self.multi_thread_single_chunk_data_init(*param_item)
-                if result:
-                    chunk_dict_list.append(result)
-            # for i in range(0, len(thread_pool_param_list), constant.PROCESS_THREAD_NUM):
-            #     item_list = thread_pool_param_list[i:i + constant.PROCESS_THREAD_NUM]
-            #     futures = {executor.submit(self.multi_thread_single_chunk_data_init, *data): data for data in
-            #                item_list}
-            #     for future in as_completed(futures):
-            #         result = future.result()  # Get the result from the Future
-            #         if result:
-            #             chunk_dict_list.append(result)
+            for i in range(0, len(thread_pool_param_list), constant.PROCESS_THREAD_NUM):
+                item_list = thread_pool_param_list[i:i + constant.PROCESS_THREAD_NUM]
+                tasks = [
+                    self.loop.run_in_executor(executor,self.multi_thread_single_chunk_data,*data)
+                    for data in item_list
+                ]
+                results = await asyncio.gather(*tasks)
+                for result in results:
+                    chunk_dict_list.append(result[0])
+                    await self.send_process_bar_event(file_json_data["file_id"], file_json_data["size"], result[1])
         # 计算所有 hash 值
         file_json_data["chunk_num"] = chunk_num - 1
         chunk_dict_list = sorted(chunk_dict_list, key=lambda x: x["chunk_num"])
@@ -316,12 +257,16 @@ class  MainClass:
         file_out_path = os.path.join(self.output_path, str(file_json_data["file_id"]) + file_json_data["suffix"])
         chunk_path_list = [item["file_path"] for item in chunk_path_list]
 
-        with open(file_out_path,"wb") as final_file:
-            for item in chunk_path_list:
-                with open(item,"rb") as temp_file:
-                    final_file.write(temp_file.read())
-                #  remove this part file path
-                os.remove(item)
+        for item in chunk_path_list:
+            os.remove(item)
+
+        # with open(file_out_path,"wb") as final_file:
+        #     for item in chunk_path_list:
+        #         # remove item
+        #         # with open(item,"rb") as temp_file:
+        #         #     final_file.write(temp_file.read())
+        #         #  remove this part file path
+        #         os.remove(item)
         # self.send_sync(event="done",data={
         #     "file_id": file_json_data["file_id"],
         #     "chunk_num": "all",

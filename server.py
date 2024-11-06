@@ -2,8 +2,7 @@
 # server end
 from aiohttp import web
 import aiohttp
-import logg
-from main import MainClass
+from file_transfer import MainClass
 import asyncio
 import tools
 import  constant
@@ -11,14 +10,11 @@ import time
 import os
 import json
 from  logg import logger as logger
-import uuid
 
 async def time_delay(num):
     logger.info("start count")
     time.sleep(num)
     logger.info("end count")
-
-
 
 
 @web.middleware
@@ -31,8 +27,6 @@ async def cache_control(request: web.Request, handler):
 def create_cors_middleware(allowed_origin: str):
     @web.middleware
     async def cors_middleware(request: web.Request, handler):
-        logger.info("time:[%s] method:[%s] URL:[%s] params:[%s] "%
-              (time.asctime(),request.method,request.path,request.scheme))
         if request.method == "OPTIONS":
             # Pre-flight request. Reply successfully:
             response = web.Response()
@@ -63,6 +57,7 @@ class MainServer:
         self.routes = routes
         self.operate_path_list = []
         self.socket = []
+
 
         @routes.get('/ws')
         async def websocket_handler(request):
@@ -99,27 +94,6 @@ class MainServer:
                     logger.info(f"WebSocket error: {ws.exception()}")
                     self.program.socket = []
                     break
-                # elif msg.type == aiohttp.WSMsgType.CONTINUATION:
-                #
-            # if sid:
-            #     # Reusing existing session, remove old
-            #     self.sockets.pop(sid, None)
-            # else:
-            #     sid = uuid.uuid4().hex
-            #
-            # self.sockets[sid] = ws
-            #
-            # try:
-            #     # Send initial state to the new client
-            #     await self.send("status", { "status": self.get_queue_info(), 'sid': sid }, sid)
-            #     # On reconnect if we are the currently executing client send the current node
-            #     if self.client_id == sid and self.last_node_id is not None:
-            #         await self.send("executing", { "node": self.last_node_id }, sid)
-            #
-            #     async for msg in ws:
-            #         if msg.type == aiohttp.WSMsgType.ERROR:
-            #             logging.warning('ws connection closed with exception %s' % ws.exception())
-            # finally:
             return ws
 
         @routes.get("/test")
@@ -139,13 +113,9 @@ class MainServer:
             data = await request.json()
             # logger.info("获取到数据为", data)
             submit_id = data.get("id")
-            # asyncio.create_task(time_delay(10))
             self.loop.call_soon_threadsafe(
                 self.program.task_queue_file.put_nowait, (submit_id)
             )
-            # if submit_id:
-            #     await self.program.task_queue_file.put(submit_id)
-            # logger.info(f"------------------------{submit_id}")
             return web.json_response(data)
 
         @routes.get("/send-data")
@@ -160,8 +130,8 @@ class MainServer:
 
         # submit the dir info to server
         @routes.post("/submit-dir")
-        def post_interrupt(request):
-            self.program.send_sync("query", {
+        async def post_interrupt(request):
+            await self.program.send_sync("query", {
                 "data": "data"
             })
             return self.obtain_all_file_size(constant.TMP_DIR_PATH)
@@ -186,7 +156,7 @@ class MainServer:
             "file_info": file_all_list
         })
 
-    async  def send_data_obj_programe(self,pass_obj):
+    async def send_data_obj_programe(self,pass_obj):
         await self.program.init_file_version2(pass_obj)
 
     async def setup(self):
@@ -204,14 +174,12 @@ class MainServer:
             result_file = filter_file[0]
             await self.send_data_obj_programe(result_file)
 
-
     async def publish_loop(self):
         while True:
             msg = await self.program.state_msg.get()
-            logger.info(f"ready to send data, receive {len(self.socket)} msg is {msg}")
-            if len(self.program.socket)!=0 and msg:
-                # logger.info(msg[1])
+            if len(self.program.socket) >0 :
                 await self.program.socket[0].send_str(json.dumps(msg[1]))
+
 
     def add_routes(self):
         api_routes = web.RouteTableDef()

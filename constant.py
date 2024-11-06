@@ -16,7 +16,14 @@ PROCESS_THREAD_NUM = 1
 TMP_DIR_PATH = "D:/Coding/Practice/Pychon_Pra/temp"
 
 
-LOG_SAVE_PATH = "app.log"
+# log path for save
+LOG_SAVE_PATH = "../log/app.log"
+
+# single log size
+LOG_MAX_SIZE = 20_000_000
+
+# backup file num for log
+LOG_BACK_COUNT = 10
 
 class UPLOAD_STATUS(Enum):
     success = "success"
