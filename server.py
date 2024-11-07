@@ -54,6 +54,7 @@ class MainServer:
         self.app = web.Application(client_max_size=max_upload_size, middlewares=middlewares)
         logger.info("Backend server start")
         routes = web.RouteTableDef()
+        self.num_workers = 3
         self.routes = routes
         self.operate_path_list = []
         self.socket = []
@@ -181,6 +182,24 @@ class MainServer:
                 await self.program.socket[0].send_str(json.dumps(msg[1]))
 
 
+
+    async def customor_run(self):
+        # Start multiple consumer tasks for parallel processing
+        consumers = [asyncio.create_task(self.task_execute_loop()) for _ in range(self.num_workers)]
+        # # This runs indefinitely, as there’s no defined stopping point
+        # await self.program.state_msg.join()  # Optionally wait for all items to be processed
+        # # Cancel all consumers on shutdown
+        # for consumer in consumers:
+        #     consumer.cancel()
+        await asyncio.gather(*consumers, return_exceptions=True)
+
+
+    # async def allCustorStart(self):
+    #
+    #     consumer_task = asyncio.create_task(self.customor_run())
+    #     await asyncio.gather(consumer_task)
+
+
     def add_routes(self):
         api_routes = web.RouteTableDef()
         for route in self.routes:
@@ -208,8 +227,8 @@ class MainServer:
 
 async def run(server, address='', port=8188, verbose=True, call_on_start=None):
     await asyncio.gather(server.start(address, port, verbose, call_on_start),
-                         server.task_execute_loop(),
-                         server.publish_loop())
+                         server.publish_loop(),
+                         server.customor_run())
 
 
 if __name__ == '__main__':
